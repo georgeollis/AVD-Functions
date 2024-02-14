@@ -156,10 +156,7 @@ Function Deploy-AvdSessionHosts {
         [Parameter(Mandatory = $false)][securestring]$VirtualMachinePassword = (ConvertTo-SecureString (( -join ([char[]](33..122) | Get-Random -Count 16))) -AsPlainText -Force),
         [Parameter(Mandatory = $false)][Array]$Tags,
         [Parameter(Mandatory = $false)][string]$DataCollectionRuleId,
-        [Parameter(Mandatory = $false)][System.Collections.ArrayList]$CustomPowerShellExtensions = @(@{
-                ScriptString = [string]
-            })
-
+        [Parameter(Mandatory = $false)][System.Collections.ArrayList]$CustomPowerShellExtensions = @()
     )        
 
     begin {
@@ -197,7 +194,7 @@ Function Deploy-AvdSessionHosts {
             Write-Verbose "Message: Scaling rule detected. Disabling the scaling plan temporarily."
             $HostPoolScalingPlanName = (Get-AzWvdScalingPlan | Where-Object { $_.HostPoolReference.HostPoolArmPath -contains $HostPoolGet.Id }).Name
             $HostPlanScalingPlanWasEnabled = $true
-            Update-AzWvdScalingPlan -ResourceGroupName $HostPoolResourceGroupName -Name $HostPoolScalingPlanName -HostPoolReference @(@{'hostPoolArmPath' = $HostPoolGet.Id; 'scalingPlanEnabled' = $false; }) | Out-Null 
+            Update-AzWvdScalingPlan -ResourceGroupName $HostPoolResourceGroupName -Name $HostPoolScalingPlanName -HostPoolReference @(@{'hostPoolArmPath' = $HostPoolGet.Id; 'scalingPlanEnabled' = $false }) | Out-Null 
         }
     
         try {
@@ -278,12 +275,12 @@ Function Deploy-AvdSessionHosts {
             Write-Verbose "HostPoolName: $($SessionHostConfig.HostPoolName)"
             Write-Verbose "HostPoolResourceGroupName: $($SessionHostConfig.HostResourceGroupName)"
             Write-Verbose "ResourceGroupName: $($SessionHostConfig.ResourceGroupName)"
-            Write-Verbose "Instance: $VMInstance"
+            Write-Verbose "Instance: $($SessionHostConfig.VirtualMacineInstance)"
             Write-Verbose "##########!$VirtualMachineName - Configuration!##########"
             Write-Verbose ""
         }
 
-        $SessionHostDeploymentConfig | Foreach-Object -Parallel {
+        $SessionHostDeploymentConfig | Foreach-Object -ThrottleLimit $VirtualMachineCount -Parallel {
             Write-Verbose "Message: Attempting creation of $($PsItem.VirtualMachineName)"
 
             try {
@@ -301,8 +298,8 @@ Function Deploy-AvdSessionHosts {
                     --zone $PSItem.AvailabilityZone `
                     --os-disk-size-gb 127 `
                     --storage-sku $PSItem.VirtualMachineDiskType `
-                    --public-ip-address '""' `
-                    --nsg '""' `
+                    --public-ip-address "" `
+                    --nsg "" `
                     --tags $PsItem.Tags `
                     --os-disk-name "os-disk-$($PsItem.VirtualMachineName)" `
                     --only-show-errors `
@@ -322,10 +319,7 @@ Function Deploy-AvdSessionHosts {
             Write-Verbose "Message: Pausing for 60 seconds..."
             Stop-AvdDeployment -Seconds 60
             Write-Verbose "Message: Attempting to join virtual machines to the domain..."
-            Write-Verbose "`nDomain join properties: 
-            `nUserPrincipalName: $($DomainJoinProperties.UserPrincipalName), 
-            `nDomainName: $($DomainJoinProperties.DomainName), 
-            `nOUPath: $($DomainJoinProperties.OUPath)"
+            Write-Verbose "`Domain join properties: UserPrincipalName: $($DomainJoinProperties.UserPrincipalName), DomainName: $($DomainJoinProperties.DomainName), OUPath: $($DomainJoinProperties.OUPath)"
 
             try {
                 $Password = $(ConvertTo-SecureString $DomainJoinProperties.Password -AsPlainText -Force -ErrorAction Stop) 
@@ -335,7 +329,7 @@ Function Deploy-AvdSessionHosts {
                 Write-Error "Error: Unable to set credential object for password. $($_.Exception.Message)"
             }
 
-            $SessionHostDeploymentConfig | ForEach-Object -Parallel {
+            $SessionHostDeploymentConfig | ForEach-Object -ThrottleLimit $VirtualMachineCount -Parallel {
 
                 try {
     
@@ -367,7 +361,7 @@ Function Deploy-AvdSessionHosts {
         Write-Verbose "Message: Attempting to register virtual machines with the correct AVD Host Pool"
         Stop-AvdDeployment -Seconds 60
 
-        $SessionHostDeploymentConfig | Foreach-Object -Parallel {
+        $SessionHostDeploymentConfig | Foreach-Object -ThrottleLimit $VirtualMachineCount -Parallel {
             Write-Verbose "Message: Configuring $($PSItem.VirtualMachineName) for HostPool $($PsItem.HostPoolName) "
             try {
 
@@ -407,7 +401,7 @@ Function Deploy-AvdSessionHosts {
             Write-Verbose "Message: Azure Monitor Agent has been set to true. Attempting installation..."
             Stop-AvdDeployment -Seconds 60
 
-            $SessionHostDeploymentConfig | Foreach-Object -Parallel {
+            $SessionHostDeploymentConfig | Foreach-Object -ThrottleLimit $VirtualMachineCount -Parallel {
                 
                 try {
                     Set-AzVMExtension `
@@ -439,7 +433,7 @@ Function Deploy-AvdSessionHosts {
 
             if ($DataCollection) {
 
-                $SessionHostDeploymentConfig | Foreach-Object -Parallel { 
+                $SessionHostDeploymentConfig | Foreach-Object -ThrottleLimit $VirtualMachineCount -Parallel { 
                     $VirtualMachineId = (Get-AzVM -ResourceGroupName $PsItem.ResourceGroupName -Name $PsItem.VirtualMachineName).Id
 
                     try {
@@ -460,20 +454,24 @@ Function Deploy-AvdSessionHosts {
 
         }
 
-        if (!$CustomPowerShellExtensions) {
+        if ($CustomPowerShellExtensions) {
 
             Write-Verbose "Message: Custom script string provided. Attempting to run the scripts on the local machines."
 
-            $SessionHostDeploymentConfig | Foreach-Object -Parallel {
+            $SessionHostDeploymentConfig | Foreach-Object -ThrottleLimit $VirtualMachineCount -Parallel {
                 
                 Foreach ($script in $using:CustomPowerShellExtensions) {
+
+                    Write-Verbose "Message: Running the following script on $($PsItem.VirtualMachineName): $script"
+
                     try {
                         Invoke-AzVMRunCommand `
                             -ResourceGroupName $PsItem.ResourceGroupName `
                             -VmName $PsItem.VirtualMachineName `
-                            -ScriptString $script.ScriptString `
+                            -ScriptString $script `
                             -CommandId "RunPowerShellScript" `
-                            -ErrorAction SilentlyContinue | Out-Null
+                            -ErrorAction SilentlyContinue `
+                            -Verbose | Out-Null
                     }
                     catch {
                         Write-Error "Error: Custom script has failed. $($_.Exception.Message)"
@@ -494,7 +492,7 @@ Function Deploy-AvdSessionHosts {
                 -HostPoolReference @(
                 @{
                     'hostPoolArmPath'    = $HostPoolGet.Id;
-                    'scalingPlanEnabled' = $true;
+                    'scalingPlanEnabled' = $true
                 }
             ) | Out-Null 
         }
@@ -594,7 +592,7 @@ function Remove-AvdSessionHosts {
             Write-Verbose "Message: Scaling rule detected. Disabling the scaling plan temporarily."
             $HostPoolScalingPlanName = (Get-AzWvdScalingPlan | Where-Object { $_.HostPoolReference.HostPoolArmPath -contains $HostPoolGet.Id }).Name
             $HostPlanScalingPlanWasEnabled = $true
-            Update-AzWvdScalingPlan -ResourceGroupName $HostPoolResourceGroupName -Name $HostPoolScalingPlanName -HostPoolReference @(@{'hostPoolArmPath' = $HostPoolGet.Id; 'scalingPlanEnabled' = $false; }) | Out-Null 
+            Update-AzWvdScalingPlan -ResourceGroupName $HostPoolResourceGroupName -Name $HostPoolScalingPlanName -HostPoolReference @(@{'hostPoolArmPath' = $HostPoolGet.Id; 'scalingPlanEnabled' = $false }) | Out-Null 
         }
 
         try {
@@ -749,7 +747,7 @@ function Remove-AvdSessionHosts {
                     -HostPoolReference @(
                     @{
                         'hostPoolArmPath'    = $HostPoolGet.Id;
-                        'scalingPlanEnabled' = $true;
+                        'scalingPlanEnabled' = $true
                     }
                 ) | Out-Null 
             }
@@ -776,19 +774,21 @@ function Restart-AvdSessionHosts {
   .PARAMETER HostPoolResourceGroupName
   The resource group of the host pool
 
+  .PARAMETER ForceTurnOn
+  Setting force turn on to true will turn on any virtual machines currently deallocated in the pool. Useful when need to ensure all virtual machines are running.
+
   .EXAMPLE
-  Restart-AvdSessionHosts -HostPoolName "MyHostPool" -ResourceGroupName "myResourceGroup" -Verbose
+  Restart-AvdSessionHosts -HostPoolName "MyHostPool" -HostPoolResourceGroupName "myResourceGroup" -Verbose
 
   .NOTES
   Version:        1.0
   Author:         George Ollis
 #>
 
-
-
     param (
         [Parameter(Mandatory = $true)][string]$HostPoolName,
-        [Parameter(Mandatory = $true)][string]$HostPoolResourceGroupName
+        [Parameter(Mandatory = $true)][string]$HostPoolResourceGroupName,
+        [Parameter(Mandatory = $false)][bool]$ForceTurnOn = $false
     )
 
     begin {
@@ -804,8 +804,9 @@ function Restart-AvdSessionHosts {
                     Write-Error "Module depedencies not found. Cannot find $($_)"
                 }
             })
+    }
 
-
+    process {
         try {
             $HostPoolGet = Get-AzWvdHostPool -Name $HostPoolName -ResourceGroupName $HostPoolResourceGroupName -ErrorAction Stop
             $HostPoolName = $HostPoolGet.Name
@@ -820,7 +821,7 @@ function Restart-AvdSessionHosts {
             Write-Verbose "Message: Scaling rule detected. Disabling the scaling plan temporarily."
             $HostPoolScalingPlanName = (Get-AzWvdScalingPlan | Where-Object { $_.HostPoolReference.HostPoolArmPath -contains $HostPoolGet.Id }).Name
             $HostPlanScalingPlanWasEnabled = $true
-            Update-AzWvdScalingPlan -ResourceGroupName $HostPoolResourceGroupName -Name $HostPoolScalingPlanName -HostPoolReference @(@{'hostPoolArmPath' = $HostPoolGet.Id; 'scalingPlanEnabled' = $false; }) | Out-Null 
+            Update-AzWvdScalingPlan -ResourceGroupName $HostPoolResourceGroupName -Name $HostPoolScalingPlanName -HostPoolReference @(@{'hostPoolArmPath' = $HostPoolGet.Id; 'scalingPlanEnabled' = $false }) | Out-Null 
         }
 
         try {
@@ -836,8 +837,43 @@ function Restart-AvdSessionHosts {
         }
 
         If ($AvdSessionHosts) {
-            
-            $AvdSessionHosts | ForEach-Object -Parallel {
+
+            Write-Verbose "HostPoolName: $($HostPoolName)"
+            Write-Verbose "HostPoolResourceGroupName: $($HostPoolName)"
+            Write-Verbose "ForceTurnOn: $($ForceTurnOn)"
+
+            if ($ForceTurnOn) {
+
+                $AvdSessionHosts | ForEach-Object {
+
+                    try {
+                        Write-Verbose "Message: Getting virtual machine object properties."
+                        $VM = Get-AzVM -ResourceId $PsItem.ResourceId -Status | Select-Object @{name = "VMStatus"; e = { $($_.statuses.displayStatus[1]) } }, name, resourceGroupName -ErrorAction Stop
+                        Write-Verbose "Message: Virtual machine located $($VM.Name)"
+                    }
+                    catch {
+                        Write-Error "Error: Unable to locate virtual machine $($sessionHost.ResourceId)"
+                    }
+    
+                    Write-Verbose "Message: Force Turn On set to true. Turning on deallocated virtual machines."
+                    
+                    if ($VM.VMStatus -eq "VM deallocated") {
+                        Write-Verbose "Message: Starting $($VM.Name)..."
+                        Start-AzVM -Name $VM.Name -ResourceGroupName $VM.ResourceGroupName -AsJob | Out-Null
+                        
+                        while ((Get-AzVM -Name $VM.Name -ResourceGroupName $VM.ResourceGroupName -Status | Select-Object @{name = "VMStatus"; e = { $($_.statuses.displayStatus[1]) } }).VMStatus  -ne "VM running") {
+                            Write-Verbose "Message: Pausing deployment. Waiting for $($VM.Name) to turn online."
+                            Stop-AvdDeployment -seconds 10
+                        }
+                        
+                        Write-Verbose "Message: $($VM.Name) started."
+                    }
+                }
+
+            }
+
+            $AvdSessionHosts | ForEach-Object {
+
                 try {
                     Write-Verbose "Message: Getting virtual machine object properties."
                     $VM = Get-AzVM -ResourceId $PsItem.ResourceId -Status | Select-Object @{name = "VMStatus"; e = { $($_.statuses.displayStatus[1]) } }, name, resourceGroupName -ErrorAction Stop
@@ -847,12 +883,11 @@ function Restart-AvdSessionHosts {
                     Write-Error "Error: Unable to locate virtual machine $($sessionHost.ResourceId)"
                 }
 
-
                 if ($VM.VMStatus -eq "VM running") {
                     Write-Verbose "Virtual machine $($VM.Name) is running. Attempting to restart"
                     try {
                         Restart-AZvM -Name $VM.Name -ResourceGroupName $VM.ResourceGroupName | Out-Null
-                        Write-Output "$($VM.Name) is restarting..."
+                        Write-Verbose "$($VM.Name) is restarting..."
                     }
                     catch {
                         Write-Error "Message: Unable to restart the virtual machine $($_.Exception.Message)"
@@ -871,10 +906,9 @@ function Restart-AvdSessionHosts {
                 -HostPoolReference @(
                 @{
                     'hostPoolArmPath'    = $HostPoolGet.Id;
-                    'scalingPlanEnabled' = $true;
+                    'scalingPlanEnabled' = $true
                 }
             ) | Out-Null 
         }
     }
-
 }
