@@ -283,7 +283,7 @@ Function Deploy-AvdSessionHosts {
             Write-Verbose "HostPoolName: $($SessionHostConfig.HostPoolName)"
             Write-Verbose "HostPoolResourceGroupName: $($SessionHostConfig.HostResourceGroupName)"
             Write-Verbose "ResourceGroupName: $($SessionHostConfig.ResourceGroupName)"
-            Write-Verbose "Instance: $($SessionHostConfig.VirtualMacineInstance)"
+            Write-Verbose "Instance: $VMInstane"
             Write-Verbose "##########!$VirtualMachineName - Configuration!##########"
             Write-Verbose ""
         }
@@ -432,34 +432,32 @@ Function Deploy-AvdSessionHosts {
         if ($DataCollectionRuleId) {
 
             try {
-                Write-Verbose "Message: Getting the data collection rule. $DataCollectionRuleId"
+                Write-Verbose "Message: Getting the data collection rule."
                 $DataCollection = Get-AzResource -Id $DataCollectionRuleId -ErrorAction SilentlyContinue
-            }
-            catch {
-                Write-Error "Error: Unable to find the data collection rule. $($_.Exception.Message)"
-            }
+                Write-Verbose "Message: Data rule found collection $($DataCollection.ResourceId)"
 
-            if ($DataCollection) {
+                if ($DataCollection.ResourceId) {
 
-                $SessionHostDeploymentConfig | Foreach-Object -ThrottleLimit $VirtualMachineCount -Parallel { 
-                    $VirtualMachineId = (Get-AzVM -ResourceGroupName $PsItem.ResourceGroupName -Name $PsItem.VirtualMachineName).Id
+                    Foreach ($VirtualMachine in $SessionHostDeploymentConfig) {
 
-                    try {
-                        Write-Verbose "Message: Linking the virtual machine $($PsItem.VirtualMachineName) with the data collection rule..."
+                        Write-Verbose "$($VirtualMachine.VirtualMachineName)"
+                        Write-Verbose "$($DataCollection.ResourceId)"
+                        Write-Verbose "$($VirtualMachine.ResourceGroupName)"  
+
                         New-AzDataCollectionRuleAssociation `
-                            -AssociationName  "avdVmAssoc" `
-                            -ResourceUri $VirtualMachineId `
-                            -DataCollectionRuleId $using:DataCollection.Id `
-                            -ErrorAction SilentlyContinue | Out-Null
-                    }
-                    catch {
-                        Write-Error "Error: Unable to link the data collection rule with the virtual machine $($PSItem.VirtualMachinenName). Will not block the deployment of AVD session hosts but this should be reviewed."
+                             -AssociationName  "avdVmAssoc" `
+                             -ResourceUri (Get-AzVm -Name $VirtualMachine.VirtualMachineName -ResourceGroupName $VirtualMachine.ResourceGroupName).Id `
+                             -DataCollectionRuleId $DataCollection.ResourceId `
+                             -ErrorAction SilentlyContinue
+
                     }
 
                 }
 
             }
-
+            catch {
+                Write-Error "Error: Unable to find the data collection rule. $($_.Exception.Message)"
+            }
         }
 
         if ($CustomPowerShellExtensions) {
