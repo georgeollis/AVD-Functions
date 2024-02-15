@@ -160,7 +160,7 @@ Function Deploy-AvdSessionHosts {
     )        
 
     begin {
-
+        Write-Verbose "$($DataCollectionRuleId)"
 
         $RequiredModules = @("Az.Resources", "Az.Compute", "Az.Network", "Az.DesktopVirtualization", "Az.Monitor")
         $RequiredModules.ForEach({
@@ -430,10 +430,11 @@ Function Deploy-AvdSessionHosts {
         }
 
         if ($DataCollectionRuleId) {
-
+                Write-Verbose "Message: Data collection rule Id provided. $DataCollectionRuleId"
+                
             try {
                 Write-Verbose "Message: Getting the data collection rule."
-                $DataCollection = Get-AzResource -Id $DataCollectionRuleId -ErrorAction SilentlyContinue
+                $DataCollection = Get-AzResource -Id $DataCollectionRuleId -ErrorAction Stop -Verbose
                 Write-Verbose "Message: Data rule found collection $($DataCollection.ResourceId)"
 
                 if ($DataCollection.ResourceId) {
@@ -448,7 +449,8 @@ Function Deploy-AvdSessionHosts {
                              -AssociationName  "avdVmAssoc" `
                              -ResourceUri (Get-AzVm -Name $VirtualMachine.VirtualMachineName -ResourceGroupName $VirtualMachine.ResourceGroupName).Id `
                              -DataCollectionRuleId $DataCollection.ResourceId `
-                             -ErrorAction SilentlyContinue
+                             -ErrorAction SilentlyContinue `
+                             -Verbose | Out-Null
 
                     }
 
