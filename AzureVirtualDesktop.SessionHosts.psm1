@@ -173,6 +173,14 @@ Function Deploy-AvdSessionHosts {
                 }
             })
 
+        try {
+            $checkAz = (az version | ConvertFrom-Json -ErrorAction Stop | Select-Object @{name = "cliVersion"; e = { $($_.'azure-cli') } })
+            Write-Verbose "Message: Azure CLI installation found. Running $($checkAz.cliVersion)"
+        }
+        catch {
+            Write-Error "Error: Cannot find Azure CLI install. Please ensure Azure CLI is installed."
+        }
+
     }
 
     Process {
@@ -804,6 +812,14 @@ function Restart-AvdSessionHosts {
                     Write-Error "Module depedencies not found. Cannot find $($_)"
                 }
             })
+
+        try {
+            $checkAz = (az version | ConvertFrom-Json -ErrorAction Stop | Select-Object @{name = "cliVersion"; e = { $($_.'azure-cli') } })
+            Write-Verbose "Message: Azure CLI installation found. Running $($checkAz.cliVersion)"
+        }
+        catch {
+            Write-Error "Error: Cannot find Azure CLI install. Please ensure Azure CLI is installed."
+        }
     }
 
     process {
@@ -861,7 +877,7 @@ function Restart-AvdSessionHosts {
                         Write-Verbose "Message: Starting $($VM.Name)..."
                         Start-AzVM -Name $VM.Name -ResourceGroupName $VM.ResourceGroupName -AsJob | Out-Null
                         
-                        while ((Get-AzVM -Name $VM.Name -ResourceGroupName $VM.ResourceGroupName -Status | Select-Object @{name = "VMStatus"; e = { $($_.statuses.displayStatus[1]) } }).VMStatus  -ne "VM running") {
+                        while ((Get-AzVM -Name $VM.Name -ResourceGroupName $VM.ResourceGroupName -Status | Select-Object @{name = "VMStatus"; e = { $($_.statuses.displayStatus[1]) } }).VMStatus -ne "VM running") {
                             Write-Verbose "Message: Pausing deployment. Waiting for $($VM.Name) to turn online."
                             Stop-AvdDeployment -seconds 10
                         }
@@ -911,4 +927,99 @@ function Restart-AvdSessionHosts {
             ) | Out-Null 
         }
     }
+}
+
+function Remove-AcgImageVersions {
+<#
+  .SYNOPSIS
+  Remove old image versions in the Azure Compute Gallery.
+
+  .DESCRIPTION
+  Function will delete image versions based on the imageVersionsKeep parameter.
+
+  .PARAMETER AzureComputeGalleryName
+  The name of the Azure Compute Gallery.
+
+  .PARAMETER AzureComputeGalleryResourceGroupName
+  The name of the resource group where the Azure Compute Gallery Resource
+
+  .PARAMETER AzureComputeGalleryImageName
+  The version of the image in the Azure Compute Gallery name.
+
+  .PARAMETER VersionsToKeep
+  The number of image versions to keep. Always deletes the oldest versions.
+
+  .EXAMPLE
+  Remove-AcgImageVersions -AzureComputeGalleryName "GalleryName" -AzureComputeGalleryResourceGroupName "MyResourceGroup" -AzureComputeGalleryImageName "image_version" -Verbose
+
+  .NOTES
+  Version:        1.0
+  Author:         George Ollis
+#>
+
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)][string]$AzureComputeGalleryName,
+        [Parameter(Mandatory = $true)][string]$AzureComputeGalleryResourceGroupName,
+        [Parameter(Mandatory = $true)][string]$AzureComputeGalleryImageName,
+        [Parameter(Mandatory = $false)][int]$VersionsToKeep = 5
+    )
+    
+    begin {
+        $RequiredModules = @("Az.Resources", "Az.Compute", "Az.Network", "Az.DesktopVirtualization", "Az.Monitor")
+        $RequiredModules.ForEach({
+                try {
+                    Write-Verbose "Checking required modules installed $($_)"
+                    Get-Module -ListAvailable $_ -ErrorAction Stop | Out-Null
+                }
+                catch {
+                    Write-Error "Module depedencies not found. Cannot find $($_)"
+                }
+            })
+
+        try {
+            $checkAz = (az version | ConvertFrom-Json -ErrorAction Stop | Select-Object @{name = "cliVersion"; e = { $($_.'azure-cli') } })
+            Write-Verbose "Message: Azure CLI installation found. Running $($checkAz.cliVersion)"
+        }
+        catch {
+            Write-Error "Error: Cannot find Azure CLI install. Please ensure Azure CLI is installed."
+        }
+
+    }
+    
+    process {
+
+        try {
+            Write-Verbose "Message: Locating Azure Compute Gallery and Image Name."
+
+            $imageVersions = az sig image-version list `
+                --gallery-name $AzureComputeGalleryName `
+                --resource-group $AzureComputeGalleryResourceGroupName `
+                --gallery-image-name $AzureComputeGalleryImageName `
+                --query "reverse(sort_by([].{name:name, date:publishingProfile.publishedDate}, &date))" `
+            | Out-String | ConvertFrom-Json -ErrorAction Stop | Sort-Object -Property Date -Descending | Select-Object -Skip $VersionsToKeep 
+
+            if ($imageVersions) {
+                Write-Verbose "Message: Image versions detected that can be deleted."
+
+                $imageVersions.ForEach({
+                        Write-Verbose "Message: Found an image version to be deleted. Deleting old image version: $($_.name) with Date: $($_.date)"
+                        az sig image-version delete `
+                            --gallery-image-name $AzureComputeGalleryImageName `
+                            --gallery-image-version $($_.name) `
+                            --gallery-name $AzureComputeGalleryName `
+                            --resource-group $AzureComputeGalleryResourceGroupName
+                        Write-Verbose "Message: Image version $($_.name) has been deleted."
+                    }
+                        
+                )
+            }
+
+        }
+        catch {
+            Write-Error "Error: Unable to remove images. $($_.Exception.Message)"
+        }
+     
+    }
+    
 }
