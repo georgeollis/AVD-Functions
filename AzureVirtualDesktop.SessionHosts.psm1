@@ -696,11 +696,17 @@ function Remove-AvdSessionHosts {
 
                 try {
                     $VirtualMachine = Get-AzVm -ResourceId $PsItem.ResourceId -ErrorAction Stop
-                    Write-Verbose "Message: Deleting session host: $($PsItem.SessionHost)"
-                    Remove-AzVM -Id $PsItem.ResourceId -ForceDeletion $true -ErrorAction Stop -Force | Out-Null
                 }
                 catch {
-                    Write-Error "Error: Unable to delete $($PSItem.SessionHost)"
+                    Write-Error "Error: Unable to get virtual machine. $($_.Exception.Message)"
+                }
+
+                try {
+                    Write-Verbose "Message: Deleting session host: $($PsItem.SessionHost)"
+                    Remove-AzVM -Id $VirtualMachine.Id -ForceDeletion $true -ErrorAction Stop -Force | Out-Null
+                }
+                catch {
+                    Write-Error "Error: Unable to delete $($PSItem.SessionHost). $($_.Exception.Message)"
                     Write-Error "Error: Stopping script and returning."
                     Return
                 }
