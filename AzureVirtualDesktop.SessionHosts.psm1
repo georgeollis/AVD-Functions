@@ -726,31 +726,17 @@ function Remove-AvdSessionHosts {
                     }
 
                     try {
-                        Invoke-AzVMRunCommand `
-                        -ResourceGroupName $VM.ResourceGroupName `
-                        -VmName $VM.Name `
-                        -ScriptString "
-                        $root = 'LDAP://$((Get-WmiObject -Namespace root\cimv2 -Class Win32_ComputerSystem | Select-Object Name, Domain).Domain)'                        
-                        try { 
-                            $domain = New-Object System.DirectoryServices.DirectoryEntry($root, $DomainUserName, $($DomainPassword)) -ErrorAction Stop
-                            $search = New-Object -TypeName System.DirectoryServices.DirectorySearcher($domain) -ErrorAction Stop
-                        }
-                        catch {
-                            Write-Error "Error: unable to create new objects. $($_.Exception.Message)"
-                        }
-                            $search.filter = "(&(ObjectCategory=Computer)(ObjectClass=Computer)((cn=$($env:computername))))"
-                            $computer = $search.FindOne()
-                            $dnc = $computer.GetDirectoryEntry()                           
-                            $dnc = $computer.GetDirectoryEntry()
-                            $dnc.DeleteTree()
-                            Write-Output 'Compute object deleted.'"
-                        -CommandId "RunPowerShellScript" `
-                        -ErrorAction SilentlyContinue `
-                        -Verbose 
+                        Remove-AvdSessionHostFromDomain `
+                            -VirtualMachineName $VM.Name `
+                            -ResourceGroupName $VM.ResourceGroupName `
+                            -DomainUserName $DomainRemoveProperties.DomainUserName `
+                            -DomainPassword $DomainRemoveProperties.DomainPassword
                     }
                     catch {
-                        Write-Error "Error: Cannot remove the virtual machine from the domain."
+                        Write-Error "Error: Unable to delete computer object in AD. $($_.Exception.Message)"
                     }
+
+                    
                 }
 
                 try {
@@ -1080,4 +1066,30 @@ function Remove-AcgImageVersions {
      
     }
     
+}
+
+
+function Remove-AvdSessionHostFromDomain {
+    [CmdletBinding()]
+    param (
+
+        [Parameter(Mandatory = $true)][string]$VirtualMachineName,
+        [Parameter(Mandatory = $true)][string]$ResourceGroupName,
+        [Parameter(Mandatory = $true)][string]$DomainUserName,
+        [Parameter(Mandatory = $true)][string]$DomainPassword
+    )
+    
+    try {
+        Invoke-AzVMRunCommand `
+            -ResourceGroupName $ResourceGroupName `
+            -VmName $VirtualMachineName `
+            -ScriptPath .\Remove-AvdSessionFromDomain.ps1 `
+            -Parameter @{ DomainUserName = $DomainUserName ; DomainPassword = $DomainPassword } `
+            -CommandId "RunPowerShellScript" `
+            -ErrorAction SilentlyContinue `
+            -Verbose 
+    }
+    catch {
+        Write-Error "Error: Unable to invoke command to remove the virtual machine from domain. $($.Exception.Message)"
+    }
 }
