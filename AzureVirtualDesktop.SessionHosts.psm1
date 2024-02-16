@@ -430,7 +430,7 @@ Function Deploy-AvdSessionHosts {
         }
 
         if ($DataCollectionRuleId) {
-                Write-Verbose "Message: Data collection rule Id provided. $DataCollectionRuleId"
+            Write-Verbose "Message: Data collection rule Id provided. $DataCollectionRuleId"
                 
             try {
                 Write-Verbose "Message: Getting the data collection rule."
@@ -446,11 +446,11 @@ Function Deploy-AvdSessionHosts {
                         Write-Verbose "$($VirtualMachine.ResourceGroupName)"  
 
                         New-AzDataCollectionRuleAssociation `
-                             -AssociationName  "avdVmAssoc" `
-                             -ResourceUri (Get-AzVm -Name $VirtualMachine.VirtualMachineName -ResourceGroupName $VirtualMachine.ResourceGroupName).Id `
-                             -DataCollectionRuleId $DataCollection.ResourceId `
-                             -ErrorAction SilentlyContinue `
-                             -Verbose | Out-Null
+                            -AssociationName  "avdVmAssoc" `
+                            -ResourceUri (Get-AzVm -Name $VirtualMachine.VirtualMachineName -ResourceGroupName $VirtualMachine.ResourceGroupName).Id `
+                            -DataCollectionRuleId $DataCollection.ResourceId `
+                            -ErrorAction SilentlyContinue `
+                            -Verbose | Out-Null
 
                     }
 
@@ -561,7 +561,12 @@ function Remove-AvdSessionHosts {
         [Parameter(Mandatory = $true)][string]$HostPoolResourceGroupName,
         [Parameter(Mandatory = $false)][int]$PauseUserLogOffInMinutes = 2,
         [Parameter(Mandatory = $false)][string]$UserLogOffMessage,
-        [Parameter(Mandatory = $false)][string]$UserLogOffMessageTitle
+        [Parameter(Mandatory = $false)][string]$UserLogOffMessageTitle,
+        [Parameter(Mandatory = $false)][PSCustomObject]$DomainRemoveProperties = @{
+            Remove         = [bool]$false
+            DomainUserName = [string]
+            DomainPassword = [string]
+        }
 
     )
     
@@ -693,12 +698,59 @@ function Remove-AvdSessionHosts {
         if ($AvdSessionHosts) {
             
             $AvdSessionHosts | ForEach-Object {
+                
 
                 try {
                     $VirtualMachine = Get-AzVm -ResourceId $PsItem.ResourceId -ErrorAction Stop
                 }
                 catch {
                     Write-Error "Error: Unable to get virtual machine. $($_.Exception.Message)"
+                }
+
+                if ($DomainRemoveProperties.Remove -eq $true) {
+                    
+                    $VM = Get-AzVM -ResourceId $PsItem.ResourceId -Status | Select-Object @{name = "VMStatus"; e = { $($_.statuses.displayStatus[1]) } }, name, resourceGroupName -ErrorAction Stop
+
+                    Write-Verbose "Message: Force Turn On set to true. Turning on deallocated virtual machines."
+                    
+                    if ($VM.VMStatus -eq "VM deallocated") {
+                        Write-Verbose "Message: Starting $($VM.Name)..."
+                        Start-AzVM -Name $VM.Name -ResourceGroupName $VM.ResourceGroupName  | Out-Null
+                        
+                        while ((Get-AzVM -Name $VM.Name -ResourceGroupName $VM.ResourceGroupName -Status | Select-Object @{name = "VMStatus"; e = { $($_.statuses.displayStatus[1]) } }).VMStatus -ne "VM running") {
+                            Write-Verbose "Message: Pausing deployment. Waiting for $($VM.Name) to turn online."
+                            Stop-AvdDeployment -seconds 10
+                        }
+                        
+                        Write-Verbose "Message: $($VM.Name) started."
+                    }
+
+                    try {
+                        Invoke-AzVMRunCommand `
+                        -ResourceGroupName $VM.ResourceGroupName `
+                        -VmName $VM.Name `
+                        -ScriptString "
+                        $root = 'LDAP://$((Get-WmiObject -Namespace root\cimv2 -Class Win32_ComputerSystem | Select-Object Name, Domain).Domain)'                        
+                        try { 
+                            $domain = New-Object System.DirectoryServices.DirectoryEntry($root, $DomainUserName, $($DomainPassword)) -ErrorAction Stop
+                            $search = New-Object -TypeName System.DirectoryServices.DirectorySearcher($domain) -ErrorAction Stop
+                        }
+                        catch {
+                            Write-Error "Error: unable to create new objects. $($_.Exception.Message)"
+                        }
+                            $search.filter = "(&(ObjectCategory=Computer)(ObjectClass=Computer)((cn=$($env:computername))))"
+                            $computer = $search.FindOne()
+                            $dnc = $computer.GetDirectoryEntry()                           
+                            $dnc = $computer.GetDirectoryEntry()
+                            $dnc.DeleteTree()
+                            Write-Output 'Compute object deleted.'"
+                        -CommandId "RunPowerShellScript" `
+                        -ErrorAction SilentlyContinue `
+                        -Verbose 
+                    }
+                    catch {
+                        Write-Error "Error: Cannot remove the virtual machine from the domain."
+                    }
                 }
 
                 try {
@@ -936,7 +988,7 @@ function Restart-AvdSessionHosts {
 }
 
 function Remove-AcgImageVersions {
-<#
+    <#
   .SYNOPSIS
   Remove old image versions in the Azure Compute Gallery.
 
