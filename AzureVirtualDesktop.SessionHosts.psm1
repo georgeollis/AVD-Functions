@@ -566,6 +566,7 @@ function Remove-AvdSessionHosts {
             Remove         = [bool]$false
             DomainUserName = [string]
             DomainPassword = [string]
+            LocalScriptPath = [string]
         }
 
     )
@@ -730,7 +731,8 @@ function Remove-AvdSessionHosts {
                             -VirtualMachineName $VM.Name `
                             -ResourceGroupName $VM.ResourceGroupName `
                             -DomainUserName $DomainRemoveProperties.DomainUserName `
-                            -DomainPassword $DomainRemoveProperties.DomainPassword
+                            -DomainPassword $DomainRemoveProperties.DomainPassword `
+                            -LocalScriptPath $DomainRemoveProperties.LocalScriptPath
                     }
                     catch {
                         Write-Error "Error: Unable to delete computer object in AD. $($_.Exception.Message)"
@@ -1076,18 +1078,23 @@ function Remove-AvdSessionHostFromDomain {
         [Parameter(Mandatory = $true)][string]$VirtualMachineName,
         [Parameter(Mandatory = $true)][string]$ResourceGroupName,
         [Parameter(Mandatory = $true)][string]$DomainUserName,
-        [Parameter(Mandatory = $true)][string]$DomainPassword
+        [Parameter(Mandatory = $true)][string]$DomainPassword,
+        [Parameter(Mandatory = $true)][string]$LocalScriptPath
     )
     
+
     try {
         Invoke-AzVMRunCommand `
             -ResourceGroupName $ResourceGroupName `
             -VmName $VirtualMachineName `
-            -ScriptPath .\Remove-AvdSessionFromDomain.ps1 `
+            -ScriptPath $LocalScriptPath `
             -Parameter @{ DomainUserName = $DomainUserName ; DomainPassword = $DomainPassword } `
             -CommandId "RunPowerShellScript" `
             -ErrorAction SilentlyContinue `
             -Verbose 
+
+        Stop-AvdDeployment -Seconds 60
+            
     }
     catch {
         Write-Error "Error: Unable to invoke command to remove the virtual machine from domain. $($.Exception.Message)"
