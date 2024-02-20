@@ -2,9 +2,9 @@
 
 This repository contains a collection of PowerShell modules that are designed to help manage Azure Virtual Desktop (AVD) environments. These modules can be used to automate common tasks, making it easier to manage your AVD environment.
 
-## Modules
+## Commands
 
-Here are the modules currently available in this repository:
+Here are the commands currently available in this repository:
 
 ### Deploy-AvdSessionHosts
 This module deploys session host virtual machines for Azure Virtual Desktop. It's useful for setting up new AVD environments or scaling existing ones.
