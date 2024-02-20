@@ -727,12 +727,18 @@ function Remove-AvdSessionHosts {
                     }
 
                     try {
+
                         Remove-AvdSessionHostFromDomain `
                             -VirtualMachineName $VM.Name `
                             -ResourceGroupName $VM.ResourceGroupName `
                             -DomainUserName $DomainRemoveProperties.DomainUserName `
                             -DomainPassword $DomainRemoveProperties.DomainPassword `
                             -LocalScriptPath $DomainRemoveProperties.LocalScriptPath
+
+                            Write-Verbose "Message: Attempting to remove VM from domain"
+                            
+                            Stop-AvdDeployment -Seconds 60
+                             
                     }
                     catch {
                         Write-Error "Error: Unable to delete computer object in AD. $($_.Exception.Message)"
@@ -1084,16 +1090,19 @@ function Remove-AvdSessionHostFromDomain {
     
 
     try {
+        Write-Verbose "Message: Removing $VirtualMachineName machine from the domain. Using $LocalScriptPath"
+
+        $Script = "$LocalScriptPath -DomainUserName $DomainUserName -DomainPassword $DomainPassword"
+           
         Invoke-AzVMRunCommand `
             -ResourceGroupName $ResourceGroupName `
             -VmName $VirtualMachineName `
-            -ScriptPath $LocalScriptPath `
-            -Parameter @{ DomainUserName = $DomainUserName ; DomainPassword = $DomainPassword } `
+            -ScriptString $Script `
             -CommandId "RunPowerShellScript" `
             -ErrorAction SilentlyContinue `
-            -Verbose 
+            -Verbose
 
-        Stop-AvdDeployment -Seconds 60
+
             
     }
     catch {
