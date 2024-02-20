@@ -1,3 +1,10 @@
+<#
+
+THIS SCRIPT NEEDS TO PLACED ONTO THE LOCAL MACHINE AND IS INVOKED VIA THE Remove-AvdSessionHostFromDomain Function in the core module.
+
+#>
+
+
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $true)][string]$DomainUserName,
@@ -17,5 +24,4 @@ catch {
 $search.filter = "(&(ObjectCategory=Computer)(ObjectClass=Computer)((cn=$($env:computername))))" 
 $computer = $search.FindOne()
 $dnc = $computer.GetDirectoryEntry()                           
-$dnc = $computer.GetDirectoryEntry()
 $dnc.DeleteTree()

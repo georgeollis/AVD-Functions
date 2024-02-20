@@ -1078,6 +1078,34 @@ function Remove-AcgImageVersions {
 
 
 function Remove-AvdSessionHostFromDomain {
+    <#
+    .SYNOPSIS
+    This function removes a specified Azure Virtual Desktop (AVD) Session Host from a domain.
+    
+    .DESCRIPTION
+    The function uses the Invoke-AzVMRunCommand cmdlet to run a script on the specified virtual machine. The script is expected to remove the virtual machine from the domain.
+    
+    .PARAMETER VirtualMachineName
+    The name of the virtual machine to be removed from the domain.
+    
+    .PARAMETER ResourceGroupName
+    The name of the resource group where the virtual machine is located.
+    
+    .PARAMETER DomainUserName
+    The username of the domain user who has the necessary permissions to remove the machine from the domain.
+    
+    .PARAMETER DomainPassword
+    The password of the domain user.
+    
+    .PARAMETER LocalScriptPath
+    The local path to the script that will be run on the virtual machine to remove it from the domain.
+    
+    .EXAMPLE
+    Remove-AvdSessionHostFromDomain -VirtualMachineName "vm1" -ResourceGroupName "rg1" -DomainUserName "user1" -DomainPassword "password1" -LocalScriptPath "C:\Scripts\RemoveFromDomain.ps1"
+    
+    This example removes the virtual machine named "vm1" in the resource group "rg1" from the domain. The script at "C:\Scripts\RemoveFromDomain.ps1" is run on the virtual machine to perform the removal.
+    #>
+    
     [CmdletBinding()]
     param (
 
