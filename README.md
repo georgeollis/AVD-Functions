@@ -4,7 +4,7 @@ This repository contains a collection of PowerShell modules that are designed to
 
 ## Commands
 
-Here are the commands currently available in this repository:
+Here are the commands currently available in this repository::
 
 ### Deploy-AvdSessionHosts
 This module deploys session host virtual machines for Azure Virtual Desktop. It's useful for setting up new AVD environments or scaling existing ones.
